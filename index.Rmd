@@ -6,7 +6,8 @@ output: html_document
 ---
 
 ```{css echo = FALSE}
-p,h1,h2,h3,h4,h5,span,div{text-align:right;dir:rtl};
+p,h1,h2,h3,h4,h5{text-align:right;dir:rtl};
+code{text-align:left;dir:ltr};
 ```
 
 
@@ -15,7 +16,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-```{r libraries, include=FALSE}
+```{r libraries, echo=TRUE, message=FALSE, warning=FALSE,results = FALSE}
 library(tidyverse)
 library(sf)
 library(sfnetworks)
@@ -26,10 +27,13 @@ library(nngeo)
 library(mapview)
 library(osmdata)
 library(randomcoloR)
+library(viridis)
+library(gifski)
+library(fs)
 Sys.setlocale(locale = "hebrew")
 ```
 
-```{r load data}
+```{r load data, message=FALSE, warning=FALSE,results = FALSE}
 gush_dan <- st_read("D:/Downloads/israel-ISR_gpkg/tel_aviv-4309.gpkg",layer = "edges")
 dat1 <- opq_osm_id (type = "relation", id = "1382494") %>%
     opq_string () %>%
@@ -37,22 +41,25 @@ dat1 <- opq_osm_id (type = "relation", id = "1382494") %>%
 tlv <- dat1$osm_multipolygons 
 ```
 
-```{r start manipulating}
+```{r start manipulating, message=FALSE, warning=FALSE,results = FALSE}
 step1 <- st_intersection(gush_dan,tlv)
 step2 <- step1 %>% st_transform(2039)
 step3 <- step2 %>% select()
-# step3 %>% mutate(type = st_geometry_type(geom)) %>% pull(type) 
 step4 <- step3 %>% st_cast("LINESTRING")
 pts <- step4 %>% 
-  st_line_sample(density = 1/100) %>% 
+  st_line_sample(density = 1/300) %>% 
   st_cast("POINT") %>% 
   st_sf()  %>% 
   filter(!st_is_empty(geometry)) %>% 
   `$`(geometry)
-step5 <- st_split(step4,pts) %>% st_collection_extract("LINESTRING")
+step5 <- step4 %>% 
+  as_sfnetwork() %>% 
+  st_network_blend(pts,0.1) %>% 
+  activate(edges) %>% 
+  st_as_sf()
 ```
 
-```{r network and distance matrix}
+```{r network and distance matrix, message=FALSE, warning=FALSE,results = FALSE}
 net <- as_sfnetwork(step5)
 in_giant <- net %>% components() %>% `$`(membership) %>% `==`(1)
 net1 <- net %>% 
@@ -64,11 +71,10 @@ net1 <- net %>%
   
 mat <- net1 %>% 
   st_network_cost()
-# mat <- mat + runif(nrow(mat),min = -0.1,max = 0.1)
 ```
 
-```{r walkshed optimization}
-K <- 200
+```{r walkshed optimization, message=FALSE, warning=FALSE, results = FALSE}
+K <- 20
 cols <- randomColor(K)
 colnames(mat) <- rownames(mat) <- as.numeric(1:nrow(mat))
 vec <- mat[,1:K] %>% apply(1,which.min)
@@ -78,7 +84,6 @@ new_centers <- map_dbl(1:K,function(x){
   }else{
     mat[vec == x,vec == x] %>% 
       apply(1,max) %>%
-      # rowSums() %>% 
       which.min() %>% 
       names() %>% 
       as.numeric()   
@@ -86,13 +91,11 @@ new_centers <- map_dbl(1:K,function(x){
 })
 old_centers <- vec
 p <- ggplot() +
-  geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(fill = vec),stroke = 0.3,color = "black",size = 2,shape = 21) +
-  # geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers) %>% mutate(rn = row_number()),mapping = aes(color = factor(rn)),size =3) +
+  geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(color = vec,fill = vec),stroke = 0.3,size = 2,shape = 21) +
   geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers),color = "black",size =3) +
-  theme(legend.position = "none",axis.text = element_blank()) +
   ggtitle("1") +
-  scale_color_manual(values = cols)
-ggsave("1.png")
+  scale_color_manual(values = cols,guide = "none")
+ggsave("01.png")
 Z <- 100
 lst <- list(Z)
 i = 2
@@ -104,7 +107,8 @@ for(x1 in 1:Z){
     mutate(vec = vec, z=x1)
   # reassign to clusters
   vec <- mat[,new_centers] %>% apply(1,which.min)
-  
+  mins <- mat[,new_centers] %>% apply(1,min)
+  print(max(mins))
   # refind new centers
   new_centers <- map_dbl(1:K,function(x){
     if(length(mat[vec == x,vec == x]) == 1){
@@ -112,7 +116,7 @@ for(x1 in 1:Z){
     }else{
       mat[vec == x,vec == x] %>% 
         apply(1,max) %>%
-      # rowSums() %>% 
+      
         which.min() %>% 
         names() %>% 
         as.numeric()   
@@ -124,15 +128,19 @@ for(x1 in 1:Z){
   old_centers <- vec
   
   p <- ggplot() +
-    geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(fill = vec),stroke = 0.3,color = "black",size = 2,shape = 21) +
-    # geom_sf(data = net %>% st_as_sf() %>% slice( new_centers) %>% mutate(rn = row_number()),mapping = aes(color = factor(rn)),size =3) +
+    geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(color = vec,fill = mins),stroke = 0.3,size = 2,shape = 21) +
     geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers),color = "black",size =3) +
-    theme(legend.position = "none",axis.text = element_blank()) +
     ggtitle(i)+
-    scale_color_manual(values = cols)
-  ggsave(paste0(i,".png"))
+    scale_color_manual(values = cols,guide = "none")+
+    scale_fill_viridis(option = "magma",limits = c(0,5000))
+  ggsave(paste0(ifelse(i<10,paste0("0",i),i),".png"))
   i <- i + 1
 }
-
+paths <- dir_info() %>% 
+  filter(str_detect(path,"png")) %>% 
+  pull(path)
+gif_file <- file.path("result.gif")
+gifski(paths[-1], gif_file,width = 2100,height = 2100,delay = 0.2)
+unlink(paths)
 ```
-
+![](result.gif)
