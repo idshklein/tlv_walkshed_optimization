@@ -1,0 +1,138 @@
+---
+title: "אופטימיזציה של אגני היקוות הליכתיים"
+author: "עדו קליין"
+date: "13/02/2022"
+output: html_document
+---
+
+```{css echo = FALSE}
+p,h1,h2,h3,h4,h5,span,div{text-align:right;dir:rtl};
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r libraries, include=FALSE}
+library(tidyverse)
+library(sf)
+library(sfnetworks)
+library(tidygraph)
+library(igraph)
+library(lwgeom)
+library(nngeo)
+library(mapview)
+library(osmdata)
+library(randomcoloR)
+Sys.setlocale(locale = "hebrew")
+```
+
+```{r load data}
+gush_dan <- st_read("D:/Downloads/israel-ISR_gpkg/tel_aviv-4309.gpkg",layer = "edges")
+dat1 <- opq_osm_id (type = "relation", id = "1382494") %>%
+    opq_string () %>%
+    osmdata_sf ()
+tlv <- dat1$osm_multipolygons 
+```
+
+```{r start manipulating}
+step1 <- st_intersection(gush_dan,tlv)
+step2 <- step1 %>% st_transform(2039)
+step3 <- step2 %>% select()
+# step3 %>% mutate(type = st_geometry_type(geom)) %>% pull(type) 
+step4 <- step3 %>% st_cast("LINESTRING")
+pts <- step4 %>% 
+  st_line_sample(density = 1/100) %>% 
+  st_cast("POINT") %>% 
+  st_sf()  %>% 
+  filter(!st_is_empty(geometry)) %>% 
+  `$`(geometry)
+step5 <- st_split(step4,pts) %>% st_collection_extract("LINESTRING")
+```
+
+```{r network and distance matrix}
+net <- as_sfnetwork(step5)
+in_giant <- net %>% components() %>% `$`(membership) %>% `==`(1)
+net1 <- net %>% 
+  filter(in_giant) %>% 
+  activate(edges) %>% 
+  filter(!edge_is_multiple()) %>% 
+  filter(!edge_is_loop()) %>% 
+  activate(nodes)
+  
+mat <- net1 %>% 
+  st_network_cost()
+# mat <- mat + runif(nrow(mat),min = -0.1,max = 0.1)
+```
+
+```{r walkshed optimization}
+K <- 200
+cols <- randomColor(K)
+colnames(mat) <- rownames(mat) <- as.numeric(1:nrow(mat))
+vec <- mat[,1:K] %>% apply(1,which.min)
+new_centers <- map_dbl(1:K,function(x){
+  if(length(mat[vec == x,vec == x]) == 1){
+    x
+  }else{
+    mat[vec == x,vec == x] %>% 
+      apply(1,max) %>%
+      # rowSums() %>% 
+      which.min() %>% 
+      names() %>% 
+      as.numeric()   
+  }
+})
+old_centers <- vec
+p <- ggplot() +
+  geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(fill = vec),stroke = 0.3,color = "black",size = 2,shape = 21) +
+  # geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers) %>% mutate(rn = row_number()),mapping = aes(color = factor(rn)),size =3) +
+  geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers),color = "black",size =3) +
+  theme(legend.position = "none",axis.text = element_blank()) +
+  ggtitle("1") +
+  scale_color_manual(values = cols)
+ggsave("1.png")
+Z <- 100
+lst <- list(Z)
+i = 2
+for(x1 in 1:Z){
+  print(x1)
+  lst[[x1]] <- net1 %>%
+    activate(nodes) %>%
+    st_as_sf() %>%
+    mutate(vec = vec, z=x1)
+  # reassign to clusters
+  vec <- mat[,new_centers] %>% apply(1,which.min)
+  
+  # refind new centers
+  new_centers <- map_dbl(1:K,function(x){
+    if(length(mat[vec == x,vec == x]) == 1){
+      new_centers[x]
+    }else{
+      mat[vec == x,vec == x] %>% 
+        apply(1,max) %>%
+      # rowSums() %>% 
+        which.min() %>% 
+        names() %>% 
+        as.numeric()   
+    }
+  })  
+  if(identical(old_centers,vec)){
+    break
+  }
+  old_centers <- vec
+  
+  p <- ggplot() +
+    geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec = factor(vec)),mapping = aes(fill = vec),stroke = 0.3,color = "black",size = 2,shape = 21) +
+    # geom_sf(data = net %>% st_as_sf() %>% slice( new_centers) %>% mutate(rn = row_number()),mapping = aes(color = factor(rn)),size =3) +
+    geom_sf(data = net1 %>% st_as_sf() %>% slice( new_centers),color = "black",size =3) +
+    theme(legend.position = "none",axis.text = element_blank()) +
+    ggtitle(i)+
+    scale_color_manual(values = cols)
+  ggsave(paste0(i,".png"))
+  i <- i + 1
+}
+
+```
+
