@@ -97,28 +97,29 @@ create_new_centers <- function(old_centers, mat1){
   return(res)
 }
 
-plot_progress <- function(net1,centers,mat1,n){
+plot_progress <- function(net1,centers,mat1,n,cols){
   vec1 <- vec(mat1,centers)
   p <- ggplot() +
-    geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec1 = factor(vec1)),mapping = aes(color = vec1,fill = vec1),stroke = 0.3,size = 2,shape = 21) +
+    geom_sf(data = net1 %>% st_as_sf() %>% mutate(vec1 = factor(vec1)),mapping = aes(color = vec1)) +
     geom_sf(data = net1 %>% st_as_sf() %>% slice(centers),color = "black",size =3) +
     ggtitle(n) +
-    scale_color_manual(values = cols,guide = "none")  
+    scale_color_manual(guide = "none",values = cols[1:length(centers)])  
   return(p)
 }
 
-incremental_add_centers <- function(centers, mat1, thershold,net1){
-  ggsave(filename = paste0(0,".png"),plot = plot_progress(net1,centers,mat1,0))
+incremental_add_centers <- function(centers, mat1, thershold,net1,cols){
+  ggsave(filename = "000.png",plot = plot_progress(net1,centers,mat1,0,cols))
   max_min_dist_from_center <- mat1[,centers] %>% apply(1,min) %>% max()
   i <- 1
   while(thershold < max_min_dist_from_center){
     tmp <- create_new_centers(centers, mat1)  
     if(identical(sort(tmp),sort(centers))){
       # max_max_node_from_center <- mat1[,centers] %>% apply(2,max) %>% which.max()
-      vec2 <- vec(mat1,centers)
-      com <- which.max(map_dbl(1:max(vec2),~mat1[vec2 == .x,vec2 == .x] %>% apply(1,max) %>% max()))
+      # vec2 <- vec(mat1,centers)
+      # com <- which.max(map_dbl(1:max(vec2),~mat1[vec2 == .x,vec2 == .x] %>% apply(1,max) %>% max()))
       # print(mat1[centers[com],vec2 == com])
-      max_max_node_from_center <- mat1[centers[com],vec2 == com] %>%  which.max() %>% names() %>% as.numeric()
+      # max_max_node_from_center <- mat1[centers[com],vec2 == com] %>%  which.max() %>% names() %>% as.numeric()
+      max_max_node_from_center <- mat1[,centers] %>% apply(1,min) %>% which.max()
       print(max_max_node_from_center)
       centers <- c(centers,max_max_node_from_center)
       print("A")
@@ -130,7 +131,8 @@ incremental_add_centers <- function(centers, mat1, thershold,net1){
     }
     max_min_dist_from_center <- mat1[,centers] %>% apply(1,min) %>% max() 
     print(max_min_dist_from_center)
-    ggsave(filename = paste0(i,".png"),plot = plot_progress(net1,centers,mat1,i))
+    prefix <- ifelse(i<10,paste0("00",i),ifelse(i<100,paste0("0",i),i))
+    ggsave(filename = paste0(prefix,".png"),plot = plot_progress(net1,centers,mat1,i,cols))
     i <- i+1
   }
   return(centers)
@@ -141,16 +143,8 @@ incremental_add_centers <- function(centers, mat1, thershold,net1){
 ```{r oraganized work}
 maximum <- mat %>% round() %>% apply(1,max) %>% max()
 init_centers <- which(apply(round(mat),1,max) == maximum)
-# vec(mat,init_centers)
-# iden <- FALSE
-# while(!iden){
-#   if(identical(sort(init_centers),sort(create_new_centers(init_centers,mat)  ))){
-#     iden <- TRUE
-#   }
-#   init_centers <- create_new_centers(init_centers,mat)  
-#   print(init_centers)
-# }
-incremental_add_centers(init_centers,mat,2000,net1)
+cols1 <- randomColor(1000)
+incremental_add_centers(init_centers,mat,750,net1,cols1)
 ```
 
 
