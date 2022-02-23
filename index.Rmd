@@ -34,7 +34,7 @@ Sys.setlocale(locale = "hebrew")
 ```
 
 ```{r load data, message=FALSE, warning=FALSE,results = FALSE}
-gush_dan <- st_read("D:/Downloads/israel-ISR_gpkg/tel_aviv-4309.gpkg",layer = "edges")
+gush_dan <- st_read("C:/idos_shit/israel-ISR_gpkg/tel_aviv-4309.gpkg",layer = "edges")
 dat1 <- opq_osm_id (type = "relation", id = "1382494") %>%
     opq_string () %>%
     osmdata_sf ()
