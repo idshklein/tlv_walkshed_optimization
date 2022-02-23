@@ -214,6 +214,8 @@ for(x1 in 1:Z){
 paths <- dir_info() %>% 
   filter(str_detect(path,"png")) %>% 
   pull(path)
+av::av_encode_video(paths, framerate = 10,
+                    output = 'test.mp4')
 gif_file <- file.path("result.gif")
 gifski(paths[-1], gif_file,width = 2100,height = 2100,delay = 0.2)
 unlink(paths)
