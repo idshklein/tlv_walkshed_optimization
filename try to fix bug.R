@@ -29,7 +29,6 @@ netwalk %>%
   left_join(ido_class, by =c("highway"="type")) %>% 
   filter(kind == "highway") %N>% 
   filter(centrality_degree() == degree,degree>0) %>% 
-  # autoplot()
   as_tibble() %>% 
   as_tibble() %>% 
   pull(rn)
@@ -91,7 +90,7 @@ find_closest_center <- function(mat1,centers){
   names(closest_centers) <- row.names(mat1)
   return(closest_centers %>% stack())
 }
-# finction to break down the different centers' matrices
+# function to break down the different centers' matrices
 get_center_matrix <- function(closest_center,mat) {
   closest_center %>% 
     mutate(ind = as.character(ind)) %>% 
@@ -132,6 +131,7 @@ proc <- function(mat,thershold,quan = 1){
   cur_max <- mat %>% max()
   # get initial centers for algorithm initialiazation
   centers <- find_initial_centers(mat)
+  storage <- list()
   # wnter a loop until quan percent of the clusters have less than thereshold distance to their center
   while(cur_max > thershold){
     # for all nodes, find closest center
@@ -147,6 +147,8 @@ proc <- function(mat,thershold,quan = 1){
     }else{
       centers <-new_centers
     }
+    # store all centers in a list
+    storage[[length(storage)+1]] <- centers
     # update the current maximum distance
     cur_max <- find_max_distance_in_center_matrix(center_matrix,new_centers) %>% 
       quantile(quan)
@@ -154,11 +156,19 @@ proc <- function(mat,thershold,quan = 1){
     print(cur_max)
   }
   # return the centers for all nodes
-  centers
+  storage
 }
 # run for 40% of the clusters to get a 500 meters distance from center
 res_centers <- proc(mat,500,0.4)
-
+stor <- res_centers
+# all_iter <- imap_dfr(stor,~find_closest_center(mat,.x) %>% mutate(turn= .y))
+# all_iter %>% 
+#   left_join(net1 %N>% 
+#               as_tibble(), by = c("ind"="name")) %>% 
+#   st_sf() %>% 
+#   select(values, turn) %>% 
+#   st_write("qgis_attempt.shp",append = F)
+res_centers <- res_centers[[length(res_centers)]]
 # get classification of nodes to centers
 closest_center <- find_closest_center(mat,res_centers) %>% 
   mutate(dist = map2_int(ind,values, ~mat[.x,.y]))
@@ -219,6 +229,26 @@ contracted_net2 <- contract_net(net1,mat,res_centers)
 #   mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>% 
 #   group_by(from,to,name) %>% 
 #   summarise(len = sum(len))
+
+
+t(combn(1:229,2)) %>% 
+  as_tibble() %>% 
+  mutate(res = map2(V1,V2,~{
+    contracted_net2  %N>% 
+      filter(!row_number() %in% c(.x,.y) ) %>% 
+      components() %>% `$`(membership) %>% table() %>% stack()  
+  })) %>% unnest() %>% View()
+
+contracted_net2 %>%as_sfnetwork() %>%  autoplot()
+contracted_net2  %N>% 
+  filter(!row_number() %in% c(93,94) ) %>% 
+  mutate(grp = group_components() %>% as.factor()) %>% 
+  as_sfnetwork() %>% 
+  as_tibble() %>% 
+  ggplot(aes(color = grp)) +annotation_map_tile(zoom=12) + geom_sf()
+
+  
+
 
 
 
