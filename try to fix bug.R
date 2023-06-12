@@ -1,29 +1,48 @@
 pacman::p_load(tidyverse,sf,sfnetworks,tidygraph,mapview,reticulate,randomcoloR,jsonlite,igraph,lwgeom,ggspatial,osmdata,patchwork)
+# create classification of links, whether they are drivable or walkable
 types <- structure(list(type = c("residential", "pedestrian", "secondary", 
                                  "tertiary", "primary", "trunk_link", "trunk", "footway", "tertiary_link", 
                                  "service", "steps", "unclassified", "path", "living_street", 
-                                 "primary_link", "track", "secondary_link", "road"), drive = c(1L, 
-                                                                                               0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 1L, 1L, 0L, 1L, 
-                                                                                               1L), walk = c(1L, 1L, 1L, 1L, 1L, 0L, 0L, 1L, 1L, 1L, 1L, 1L, 
-                                                                                                             1L, 1L, 1L, 1L, 1L, 1L), kind = c("street", "path", "street", 
-                                                                                                                                               "street", "street", "highway", "highway", "path", "street", "street", 
-                                                                                                                                               "path", "street", "path", "street", "street", "path", "street", 
-                                                                                                                                               "street")), class = "data.frame", row.names = c(NA, -18L))
+                                 "primary_link", "track", "secondary_link", "road", "bridleway", 
+                                 "bus_guideway", "bus_stop", "busway", "construction", "corridor", 
+                                 "crossing", "cycleway", "elevator", "emergency_access_point", 
+                                 "emergency_bay", "escape", "give_way", "milestone", "mini_roundabout", 
+                                 "motorway", "motorway_junction", "motorway_link", "passing_place", 
+                                 "platform", "proposed", "raceway", "rest_area", "services", "speed_camera", 
+                                 "stop", "street_lamp", "toll_gantry", "traffic_mirror", "traffic_signals", 
+                                 "trailhead", "turning_circle", "turning_loop", "User Defined"
+), drive = c(1L, 0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L, 1L, 0L, 1L, 
+             0L, 1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 
+             0L, 0L, 0L, 0L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 
+             0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L), walk = c(1L, 1L, 1L, 1L, 1L, 
+                                                       0L, 0L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 0L, 0L, 
+                                                       0L, 0L, 1L, 1L, 1L, 1L, 0L, 0L, 0L, 0L, 0L, 1L, 0L, 0L, 0L, 1L, 
+                                                       1L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L, 0L), 
+kind = c("street", "path", "street", "street", "street", 
+         "highway", "highway", "path", "street", "street", "path", 
+         "street", "path", "street", "street", "path", "street", "street", 
+         "path", "highway", "nothing", "highway", "nothing", "path", 
+         "path", "path", "path", "nothing", "nothing", "nothing", 
+         "nothing", "nothing", "street", "highway", "highway", "highway", 
+         "street", "path", "nothing", "nothing", "nothing", "nothing", 
+         "nothing", "nothing", "nothing", "nothing", "nothing", "nothing", 
+         "nothing", "nothing", "nothing", "nothing")), class = "data.frame", row.names = c(NA, 
+                                                                                           -52L))
 # preapre network, origins and destinations
-q_drive <- '
-way["highway"]["area"!~"yes"]["highway"!~"abandoned|bridleway|bus_guideway|construction|corridor|cycleway|elevator|escalator|footway|no|path|pedestrian|planned|platform|proposed|raceway|razed|service|steps|track"]["motor_vehicle"!~"no"]["motorcar"!~"no"]["service"!~"alley|driveway|emergency_access|parking|parking_aisle|private"](area:3601381350);
+# create query of walking 
+# paris
+q_walk <- '
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3600007444);
 (._;>;);
 out meta;'
-raw <- osmdata_sf(q_drive)
-jlm_drive <- raw$osm_lines %>% 
-  bind_rows(raw$osm_polygons %>%
-              st_cast("LINESTRING")) %>% 
-  as_sfnetwork(directed =F) %>% 
-  convert(to_spatial_subdivision) %>% 
-  mutate(cmp = group_components()) %>% 
-  filter(cmp ==1 ) 
+# ashdod
 q_walk <- '
-way["highway"]["area"!~"yes"]["highway"!~"abandoned|bus_guideway|construction|cycleway|motor|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601381350);
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601380013);
+(._;>;);
+out meta;'
+# netanya
+q_walk <- '
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601383391);
 (._;>;);
 out meta;'
 raw <- osmdata_sf(q_walk)
@@ -39,16 +58,7 @@ jlm_walk <- raw$osm_lines %>%
 
 
 
-# get all unique values of kinds of lonks
 
-# create a classifivcation ofr linls, whether they are drivable or walkable
-ido_class <- data.frame(type = uniqs[str_which(uniqs,"\\[",negate = T)],
-                        walk = c(T,T,T,T,T,T,F,F,T,F,T,F,T,T,T,T,T,T,T,T,T,T),
-                        drive = c(T,F,T,F,T,T,T,T,T,T,T,T,T,T,F,F,T,T,F,F,F,T)) %>% 
-  bind_rows(data.frame(type = uniqs[str_which(uniqs,"\\[")], walk = T,drive = F)) %>% 
-  left_join(data.frame(walk = c(T,T,F,F),
-                       drive =c(T,F,T,F),
-                       kind = c("street","path","highway","irrelevent")),by = c("walk","drive"))
 # get all nodes from which you cannot depart or to which you cannot arrive as a pedestrian
 jlm_walk %>% 
   mutate(rn = row_number(),
@@ -76,7 +86,7 @@ tos2 <- jlm_walk %>%
 froms <- jlm_walk %>% 
   mutate(rn = row_number())%E>% 
   left_join(types, by =c("highway"="type")) %>% 
-  filter(kind != "highway") %N>% 
+  filter(kind != "highway" |kind != "nothing") %N>% 
   filter(centrality_degree() > 0) %>% 
   # autoplot()
   as_tibble() %>% 
@@ -237,26 +247,27 @@ possible_new_edges <- function(contracted_net) {
     mutate(from = map_int(from,~which(.x == names_order)),
            to = map_int(to,~which(.x == names_order))) %>% 
     filter(from < to) %>% 
-    select(-geom)
-  return(res)
+    return(res)
+  select(-geom)
 }
 # contract the net according to the centers of the clusters
 contracted_net2 <- contract_net(net1,mat,res_centers)
-# named_contractedd_net <- contracted_net2%>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
-# res23 <- map_df(1:nrow(named_contractedd_net),~net1 %>% 
-#                  filter(kind == "street") %>% 
-#                  st_network_paths(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]) %>% 
-#                  mutate(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]))
-# geoms <- net1 %>%filter(kind == "street") %>%  as_tibble()
-# m23 <-res23 %>% 
-#   select(edge_paths,from,to) %>% 
-#   unnest(edge_paths) %>% 
-#   mutate(geom = geoms[edge_paths,]$geom) %>% 
-#   st_sf() %>% 
-#   mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>% 
-#   group_by(from,to,name) %>% 
-#   summarise(len = sum(len))
-
+named_contractedd_net <- contracted_net2%>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
+res23 <- map_df(1:nrow(named_contractedd_net),~net1 %>%
+                  pipe_message(.x) %>% 
+                  filter(kind == "street") %>%
+                  st_network_paths(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]) %>%
+                  mutate(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]))
+geoms <- net1 %>%filter(kind == "street") %>%  as_tibble()
+m23 <-res23 %>%
+  select(edge_paths,from,to) %>%
+  unnest(edge_paths) %>%
+  mutate(geom = geoms[edge_paths,]$geometry) %>%
+  st_sf() %>%
+  mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>%
+  group_by(from,to,name) %>%
+  summarise(len = sum(len))
+m23  %>% st_jitter(0.001) %>% mapview(zcol = "len",label = "name")
 
 t(combn(1:229,2)) %>% 
   as_tibble() %>% 
@@ -274,7 +285,7 @@ contracted_net2  %N>%
   as_tibble() %>% 
   ggplot(aes(color = grp)) +annotation_map_tile(zoom=12) + geom_sf()
 
-  
+
 
 
 
