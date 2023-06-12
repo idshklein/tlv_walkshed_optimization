@@ -22,7 +22,7 @@ dat1 <- opq_osm_id (type = "relation", id = "1382494") %>%
 tlv <- dat1$osm_multipolygons 
 step1 <- st_intersection(gush_dan,tlv)
 step2 <- step1 %>% st_transform(2039)
-step3 <- step2 %>% select()
+step3 <- step2 %>% select(highway)
 step4 <- step3 %>% st_cast("LINESTRING")
 pts <- step4 %>% 
   st_line_sample(density = 1/300) %>% 
@@ -36,6 +36,7 @@ step5 <- step4 %>%
   activate(edges) %>% 
   st_as_sf()
 net <- as_sfnetwork(step5,directed = F)
+autoplot(net)
 in_giant <- net %>% components() %>% `$`(membership) %>% `==`(1)
 net1 <- net %>% 
   filter(in_giant) %>% 
@@ -43,6 +44,7 @@ net1 <- net %>%
   filter(!edge_is_multiple()) %>% 
   filter(!edge_is_loop()) %>% 
   activate(nodes)
+autoplot(net1)
 mat <- net1 %>% 
   st_network_cost()
 colnames(mat) <- rownames(mat) <- as.numeric(1:nrow(mat))
