@@ -1,19 +1,46 @@
-library(tidyverse)
-library(sf)
-library(sfnetworks)
-library(tidygraph)
-library(mapview)
-library(reticulate)
-library(randomcoloR)
-library(jsonlite)
-library(igraph)
-library(lwgeom)
-library(ggspatial)
+pacman::p_load(tidyverse,sf,sfnetworks,tidygraph,mapview,reticulate,randomcoloR,jsonlite,igraph,lwgeom,ggspatial,osmdata,patchwork)
+types <- structure(list(type = c("residential", "pedestrian", "secondary", 
+                                 "tertiary", "primary", "trunk_link", "trunk", "footway", "tertiary_link", 
+                                 "service", "steps", "unclassified", "path", "living_street", 
+                                 "primary_link", "track", "secondary_link", "road"), drive = c(1L, 
+                                                                                               0L, 1L, 1L, 1L, 1L, 1L, 0L, 1L, 1L, 0L, 1L, 0L, 1L, 1L, 0L, 1L, 
+                                                                                               1L), walk = c(1L, 1L, 1L, 1L, 1L, 0L, 0L, 1L, 1L, 1L, 1L, 1L, 
+                                                                                                             1L, 1L, 1L, 1L, 1L, 1L), kind = c("street", "path", "street", 
+                                                                                                                                               "street", "street", "highway", "highway", "path", "street", "street", 
+                                                                                                                                               "path", "street", "path", "street", "street", "path", "street", 
+                                                                                                                                               "street")), class = "data.frame", row.names = c(NA, -18L))
 # preapre network, origins and destinations
-netwalk <- st_read("tlvall.gpkg",layer = "edges") %>% 
-  as_sfnetwork(directed = F) 
+q_drive <- '
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|bridleway|bus_guideway|construction|corridor|cycleway|elevator|escalator|footway|no|path|pedestrian|planned|platform|proposed|raceway|razed|service|steps|track"]["motor_vehicle"!~"no"]["motorcar"!~"no"]["service"!~"alley|driveway|emergency_access|parking|parking_aisle|private"](area:3601381350);
+(._;>;);
+out meta;'
+raw <- osmdata_sf(q_drive)
+jlm_drive <- raw$osm_lines %>% 
+  bind_rows(raw$osm_polygons %>%
+              st_cast("LINESTRING")) %>% 
+  as_sfnetwork(directed =F) %>% 
+  convert(to_spatial_subdivision) %>% 
+  mutate(cmp = group_components()) %>% 
+  filter(cmp ==1 ) 
+q_walk <- '
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|bus_guideway|construction|cycleway|motor|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601381350);
+(._;>;);
+out meta;'
+raw <- osmdata_sf(q_walk)
+jlm_walk <- raw$osm_lines %>% 
+  bind_rows(raw$osm_polygons %>%
+              st_cast("LINESTRING")) %>% 
+  as_sfnetwork(directed =F) %>% 
+  convert(to_spatial_subdivision) %>% 
+  mutate(cmp = group_components()) %>% 
+  filter(cmp ==1 ) 
+
+
+
+
+
 # get all unique values of kinds of lonks
-uniqs <- netwalk %E>% pull(highway) %>% unique()
+
 # create a classifivcation ofr linls, whether they are drivable or walkable
 ido_class <- data.frame(type = uniqs[str_which(uniqs,"\\[",negate = T)],
                         walk = c(T,T,T,T,T,T,F,F,T,F,T,F,T,T,T,T,T,T,T,T,T,T),
@@ -23,19 +50,19 @@ ido_class <- data.frame(type = uniqs[str_which(uniqs,"\\[",negate = T)],
                        drive =c(T,F,T,F),
                        kind = c("street","path","highway","irrelevent")),by = c("walk","drive"))
 # get all nodes from which you cannot depart or to which you cannot arrive as a pedestrian
-netwalk %>% 
+jlm_walk %>% 
   mutate(rn = row_number(),
          degree = centrality_degree())%E>% 
-  left_join(ido_class, by =c("highway"="type")) %>% 
+  left_join(types, by =c("highway"="type")) %>% 
   filter(kind == "highway") %N>% 
   filter(centrality_degree() == degree,degree>0) %>% 
   as_tibble() %>% 
   as_tibble() %>% 
   pull(rn)
 # get all nodes to which you can arrive as a pedestrian and as a motorist
-tos2 <- netwalk %>% 
+tos2 <- jlm_walk %>% 
   mutate(rn = row_number())%E>% 
-  left_join(ido_class, by =c("highway"="type")) %N>% {
+  left_join(types, by =c("highway"="type")) %N>% {
     eds <- (.) %E>% as_tibble()
     (.) %>% 
       # as_tibble() %>% 
@@ -46,9 +73,9 @@ tos2 <- netwalk %>%
   as_tibble() %>% 
   pull(rn)
 #  get all nodes from which you can depart as a pedestrian 
-froms <- netwalk %>% 
+froms <- jlm_walk %>% 
   mutate(rn = row_number())%E>% 
-  left_join(ido_class, by =c("highway"="type")) %>% 
+  left_join(types, by =c("highway"="type")) %>% 
   filter(kind != "highway") %N>% 
   filter(centrality_degree() > 0) %>% 
   # autoplot()
@@ -56,9 +83,9 @@ froms <- netwalk %>%
   as_tibble() %>% 
   pull(rn)
 # create intial network with link classification, and leave out those nodes which belong to the highwway
-net <- netwalk %>% 
+net <- jlm_walk %>% 
   mutate(rn = row_number())%E>% 
-  left_join(ido_class, by =c("highway"="type")) %>% 
+  left_join(types, by =c("highway"="type")) %>% 
   filter(kind != "highway") %N>% 
   mutate(is_to = rn %in% tos2,
          is_from = rn %in% froms)
