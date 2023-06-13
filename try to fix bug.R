@@ -45,6 +45,19 @@ q_walk <- '
 way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601383391);
 (._;>;);
 out meta;'
+# mahoz tel aviv
+q_walk <- '
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area:3601400916);
+(._;>;);
+out meta;'
+# beer sheva
+q_walk <- '
+way(675627797);
+map_to_area -> .ar;
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
+(._;>;);
+out geom meta;'
+
 raw <- osmdata_sf(q_walk)
 jlm_walk <- raw$osm_lines %>% 
   bind_rows(raw$osm_polygons %>%
@@ -100,7 +113,8 @@ net <- jlm_walk %>%
   mutate(is_to = rn %in% tos2,
          is_from = rn %in% froms)
 # filter the giant component only
-in_giant <- net %>% components() %>% `$`(membership) %>% `==`(1)
+giant <- net %>% components() %>% `$`(csize) %>% which.max()
+in_giant <- net %>% components() %>% `$`(membership) %>% `==`(giant)
 # filter the from and tos in the giant component 
 froms1 <- froms[froms %in% (1:length(in_giant))[in_giant]]
 tos1 <-  tos2[tos2 %in% (1:length(in_giant))[in_giant]]
@@ -214,7 +228,7 @@ net1 %N>%
   as_tibble() %>% 
   left_join(closest_center,by = c("name" = "ind")) %>% 
   mutate(dist1 = ifelse(dist<1000,dist,1000)) %>% 
-  # filter(dist<=1000) %>%
+  # filter(dist==0) %>%
   mapview(zcol = "dist1")
 pipe_message = function(.data, status) {message(status); .data}
 # function to contract the net, and connect the different connected clusters to each other. 
@@ -247,18 +261,18 @@ possible_new_edges <- function(contracted_net) {
     mutate(from = map_int(from,~which(.x == names_order)),
            to = map_int(to,~which(.x == names_order))) %>% 
     filter(from < to) %>% 
+    select(-geometry) %>% 
     return(res)
-  select(-geom)
 }
 # contract the net according to the centers of the clusters
 contracted_net2 <- contract_net(net1,mat,res_centers)
 named_contractedd_net <- contracted_net2%>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
 res23 <- map_df(1:nrow(named_contractedd_net),~net1 %>%
                   pipe_message(.x) %>% 
-                  filter(kind == "street") %>%
+                  filter(kind == "street" | kind == "highway") %>%
                   st_network_paths(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]) %>%
                   mutate(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]))
-geoms <- net1 %>%filter(kind == "street") %>%  as_tibble()
+geoms <- net1 %>%filter(kind == "street"| kind == "highway") %>%  as_tibble()
 m23 <-res23 %>%
   select(edge_paths,from,to) %>%
   unnest(edge_paths) %>%
@@ -267,24 +281,28 @@ m23 <-res23 %>%
   mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>%
   group_by(from,to,name) %>%
   summarise(len = sum(len))
-m23  %>% st_jitter(0.001) %>% mapview(zcol = "len",label = "name")
+m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name") %>% `+`(net1 %N>% 
+                                                                             as_tibble() %>% 
+                                                                             left_join(closest_center,by = c("name" = "ind")) %>% 
+                                                                             mutate(dist1 = ifelse(dist<1000,dist,1000)) %>% 
+                                                                             filter(dist==0) %>%
+                                                                             mapview(zcol = "dist1"))
 
-t(combn(1:229,2)) %>% 
-  as_tibble() %>% 
-  mutate(res = map2(V1,V2,~{
-    contracted_net2  %N>% 
-      filter(!row_number() %in% c(.x,.y) ) %>% 
-      components() %>% `$`(membership) %>% table() %>% stack()  
-  })) %>% unnest() %>% View()
-
-contracted_net2 %>%as_sfnetwork() %>%  autoplot()
-contracted_net2  %N>% 
-  filter(!row_number() %in% c(93,94) ) %>% 
-  mutate(grp = group_components() %>% as.factor()) %>% 
-  as_sfnetwork() %>% 
-  as_tibble() %>% 
-  ggplot(aes(color = grp)) +annotation_map_tile(zoom=12) + geom_sf()
-
+# t(combn(1:229,2)) %>% 
+#   as_tibble() %>% 
+#   mutate(res = map2(V1,V2,~{
+#     contracted_net2  %N>% 
+#       filter(!row_number() %in% c(.x,.y) ) %>% 
+#       components() %>% `$`(membership) %>% table() %>% stack()  
+#   })) %>% unnest() %>% View()
+# 
+# contracted_net2 %>%as_sfnetwork() %>%  autoplot()
+# contracted_net2  %N>% 
+#   filter(!row_number() %in% c(93,94) ) %>% 
+#   mutate(grp = group_components() %>% as.factor()) %>% 
+#   as_sfnetwork() %>% 
+#   as_tibble() %>% 
+#   ggplot(aes(color = grp)) +annotation_map_tile(zoom=12) + geom_sf()
 
 
 
@@ -312,7 +330,7 @@ find_least_transfer_edge <- function(possible_new_edges2, contracted_net2) {
            bind_edges(possible_new_edges2[.x,] ) %>% 
            distances() %>% 
            as.vector() %>% 
-           pipe_message(.x) %>%
+           # pipe_message(.x) %>%
            set_names(.x) %>% 
            stack() %>% 
            mutate(ind = as.numeric(as.character(ind))) %>% 
@@ -359,17 +377,34 @@ looper <- function(contracted,possible_new_edges2,hub_max_size = 1){
   # return the net
   contracted
 }
+least_transfer_edge <- find_least_transfer_edge(possible_new_edges2,contracted_net2)
 # carry out the algorithm
 res <- looper(contracted_net2,possible_new_edges2,3)
 # add names of nodes to edges
 with_names <- res %>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
 # get actual paths on the network currently without relate to roads or directions
 res1 <- map_df(1:nrow(with_names),~net1 %>% 
-                 filter(kind == "street") %>% 
+                 filter(kind == "street" | kind == "highway") %>% 
                  st_network_paths(from = with_names$from1[.x],to = with_names$to1[.x]) %>% 
                  mutate(from = with_names$from1[.x],to = with_names$to1[.x]))
 # get their geometries
-geoms <- net1 %>%filter(kind == "street") %>%  as_tibble()
+geoms <- net1 %>%filter(kind == "street" | kind == "highway") %>%  as_tibble()
+m23 <-res1 %>%
+  select(edge_paths,from,to) %>%
+  unnest(edge_paths) %>%
+  mutate(geom = geoms[edge_paths,]$geometry) %>%
+  st_sf() %>%
+  mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>%
+  group_by(from,to,name) %>%
+  summarise(len = sum(len))
+mapviewOptions(fgb = FALSE)
+m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name",highlight = leaflet::highlightOptions(color = "red", weight = 20, sendToBack = F)) %>% `+`(net1 %N>% 
+                                                                              as_tibble() %>%
+                                                                              left_join(closest_center,by = c("name" = "ind")) %>%
+                                                                              mutate(dist1 = ifelse(dist<1000,dist,1000)) %>%
+                                                                              filter(dist==0) %>%
+                                                                              mapview(zcol = "dist1"))
+
 m1 <- res %N>%  as_tibble() %>% st_sf() 
 m2 <- res1 %>% 
   select(edge_paths,from,to) %>% 
