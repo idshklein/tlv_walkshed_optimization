@@ -1,4 +1,4 @@
-pacman::p_load(tidyverse,sf,sfnetworks,tidygraph,mapview,reticulate,randomcoloR,jsonlite,igraph,lwgeom,ggspatial,osmdata,patchwork)
+pacman::p_load(tidyverse,sf,sfnetworks,tidygraph,mapview,reticulate,randomcoloR,jsonlite,igraph,lwgeom,ggspatial,osmdata,patchwork,nngeo)
 # create classification of links, whether they are drivable or walkable
 types <- structure(list(type = c("residential", "pedestrian", "secondary", 
                                  "tertiary", "primary", "trunk_link", "trunk", "footway", "tertiary_link", 
@@ -57,7 +57,30 @@ map_to_area -> .ar;
 way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
 (._;>;);
 out geom meta;'
+# beitar ilit
+q_walk <- 
+'rel(10044900);
+map_to_area -> .ar;
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
+(._;>;);
+out geom meta;'
 
+# la plata
+q_walk <- 
+  'rel(3266014);
+map_to_area -> .ar;
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
+(._;>;);
+out geom meta;'
+
+# afula
+
+q_walk <- 
+  'rel(1380226);
+map_to_area -> .ar;
+way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
+(._;>;);
+out geom meta;'
 raw <- osmdata_sf(q_walk)
 jlm_walk <- raw$osm_lines %>% 
   bind_rows(raw$osm_polygons %>%
@@ -127,6 +150,11 @@ net1 <- net %>%
   filter(!edge_is_multiple()) %>%
   filter(!edge_is_loop()) %>%
   mutate(weight = edge_length() %>% as.integer())
+# navigation of buses
+net2 <- jlm_walk %>% 
+  st_join(net1 %N>% as_tibble(),join = st_nn) %E>% 
+  left_join(types, by =c("highway"="type")) %>% 
+  filter(kind != "nothing",kind != "path")
 # create a distance matrix from all froms to all tos
 mat <- net1 %N>% 
   st_network_cost(from = as.character(froms1),to=as.character( tos1))
@@ -210,7 +238,9 @@ proc <- function(mat,thershold,quan = 1){
   storage
 }
 # run for 40% of the clusters to get a 500 meters distance from center
-res_centers <- proc(mat,500,0.4)
+# res_centers <- proc(mat,500,0.4)
+# la plata - 90%
+res_centers <- proc(mat,500,0.9)
 stor <- res_centers
 # all_iter <- imap_dfr(stor,~find_closest_center(mat,.x) %>% mutate(turn= .y))
 # all_iter %>% 
@@ -265,14 +295,21 @@ possible_new_edges <- function(contracted_net) {
     return(res)
 }
 # contract the net according to the centers of the clusters
-contracted_net2 <- contract_net(net1,mat,res_centers)
+
+
+
+
+
+
+
+contracted_net2 <- contract_net(net2,mat,res_centers)
 named_contractedd_net <- contracted_net2%>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
-res23 <- map_df(1:nrow(named_contractedd_net),~net1 %>%
+res23 <- map_df(1:nrow(named_contractedd_net),~net2 %>%
                   pipe_message(.x) %>% 
                   filter(kind == "street" | kind == "highway") %>%
                   st_network_paths(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]) %>%
                   mutate(from = named_contractedd_net$from1[.x],to = named_contractedd_net$to1[.x]))
-geoms <- net1 %>%filter(kind == "street"| kind == "highway") %>%  as_tibble()
+geoms <- net2 %>%filter(kind == "street"| kind == "highway") %>%  as_tibble()
 m23 <-res23 %>%
   select(edge_paths,from,to) %>%
   unnest(edge_paths) %>%
@@ -281,7 +318,7 @@ m23 <-res23 %>%
   mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>%
   group_by(from,to,name) %>%
   summarise(len = sum(len))
-m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name") %>% `+`(net1 %N>% 
+m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name") %>% `+`(net2 %N>% 
                                                                              as_tibble() %>% 
                                                                              left_join(closest_center,by = c("name" = "ind")) %>% 
                                                                              mutate(dist1 = ifelse(dist<1000,dist,1000)) %>% 
@@ -377,18 +414,19 @@ looper <- function(contracted,possible_new_edges2,hub_max_size = 1){
   # return the net
   contracted
 }
-least_transfer_edge <- find_least_transfer_edge(possible_new_edges2,contracted_net2)
+# least_transfer_edge <- find_least_transfer_edge(possible_new_edges2,contracted_net2)
 # carry out the algorithm
 res <- looper(contracted_net2,possible_new_edges2,3)
 # add names of nodes to edges
 with_names <- res %>% mutate(from1 = .N()$name[from],to1 = .N()$name[to])%>% as_tibble()
 # get actual paths on the network currently without relate to roads or directions
-res1 <- map_df(1:nrow(with_names),~net1 %>% 
+res1 <- map_df(1:nrow(with_names),~net2 %>% 
+                 pipe_message(.x) %>% 
                  filter(kind == "street" | kind == "highway") %>% 
                  st_network_paths(from = with_names$from1[.x],to = with_names$to1[.x]) %>% 
                  mutate(from = with_names$from1[.x],to = with_names$to1[.x]))
 # get their geometries
-geoms <- net1 %>%filter(kind == "street" | kind == "highway") %>%  as_tibble()
+geoms <- net2 %>%filter(kind == "street" | kind == "highway") %>%  as_tibble()
 m23 <-res1 %>%
   select(edge_paths,from,to) %>%
   unnest(edge_paths) %>%
@@ -398,7 +436,7 @@ m23 <-res1 %>%
   group_by(from,to,name) %>%
   summarise(len = sum(len))
 mapviewOptions(fgb = FALSE)
-m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name",highlight = leaflet::highlightOptions(color = "red", weight = 20, sendToBack = F)) %>% `+`(net1 %N>% 
+m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name",highlight = leaflet::highlightOptions(color = "red", weight = 20, sendToBack = F)) %>% `+`(net2 %N>% 
                                                                               as_tibble() %>%
                                                                               left_join(closest_center,by = c("name" = "ind")) %>%
                                                                               mutate(dist1 = ifelse(dist<1000,dist,1000)) %>%
