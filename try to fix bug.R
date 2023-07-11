@@ -59,7 +59,7 @@ way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|plat
 out geom meta;'
 # beitar ilit
 q_walk <- 
-'rel(10044900);
+  'rel(10044900);
 map_to_area -> .ar;
 way["highway"]["area"!~"yes"]["highway"!~"abandoned|construction|no|planned|platform|proposed|raceway|razed"]["foot"!~"no"]["service"!~"private"](area.ar);
 (._;>;);
@@ -319,11 +319,11 @@ m23 <-res23 %>%
   group_by(from,to,name) %>%
   summarise(len = sum(len))
 m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name") %>% `+`(net2 %N>% 
-                                                                             as_tibble() %>% 
-                                                                             left_join(closest_center,by = c("name" = "ind")) %>% 
-                                                                             mutate(dist1 = ifelse(dist<1000,dist,1000)) %>% 
-                                                                             filter(dist==0) %>%
-                                                                             mapview(zcol = "dist1"))
+                                                                              as_tibble() %>% 
+                                                                              left_join(closest_center,by = c("name" = "ind")) %>% 
+                                                                              mutate(dist1 = ifelse(dist<1000,dist,1000)) %>% 
+                                                                              filter(dist==0) %>%
+                                                                              mapview(zcol = "dist1"))
 
 # t(combn(1:229,2)) %>% 
 #   as_tibble() %>% 
@@ -433,16 +433,45 @@ m23 <-res1 %>%
   mutate(geom = geoms[edge_paths,]$geometry) %>%
   st_sf() %>%
   mutate(name =paste0(from,"-",to),len = st_length(geom) %>% as.numeric() ) %>%
-  group_by(from,to,name) %>%
-  summarise(len = sum(len))
+  group_by(from1=from,to1=to,name) %>%
+  group_split() %>% 
+  map_df(~.x %>% as_sfnetwork(directed=F) %E>%select(name,from1,to1) %>% convert(to_spatial_smooth,summarise_attributes ="first") %>% as_tibble()) %>% 
+  select(-from,-to) %>% 
+  rename(from = from1,to = to1) %>% 
+  mutate(len =  st_length(geom) %>% as.numeric()) %>% 
+  select(-.tidygraph_edge_index)
+  
 mapviewOptions(fgb = FALSE)
-m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name",highlight = leaflet::highlightOptions(color = "red", weight = 20, sendToBack = F)) %>% `+`(net2 %N>% 
-                                                                              as_tibble() %>%
-                                                                              left_join(closest_center,by = c("name" = "ind")) %>%
-                                                                              mutate(dist1 = ifelse(dist<1000,dist,1000)) %>%
-                                                                              filter(dist==0) %>%
-                                                                              mapview(zcol = "dist1"))
-
+m23  %>% st_jitter(0.0001) %>% mapview(zcol = "len",label = "name",highlight = leaflet::highlightOptions(color = "red", weight = 20, sendToBack = F)) %>% 
+  `+`(net2 %N>% 
+        as_tibble() %>%
+        left_join(closest_center,by = c("name" = "ind")) %>%
+        mutate(dist1 = ifelse(dist<1000,dist,1000)) %>%
+        filter(dist==0) %>%
+        mapview(zcol = "values")) %>% 
+  `+`(
+    net1 %N>% 
+      as_tibble() %>% 
+      left_join(closest_center,by = c("name" = "ind")) %>% 
+      mutate(dist2 = ifelse(dist<1000,dist,1000)) %>% 
+      # filter(dist==0) %>%
+      mapview(zcol = "dist2")  
+  )
+stops_alg <- net2 %N>% 
+  as_tibble() %>%
+  left_join(closest_center,by = c("name" = "ind")) %>%
+  mutate(dist1 = ifelse(dist<1000,dist,1000)) %>%
+  filter(dist==0)
+lines_alg_1 <- m23
+lines_alg_2 <- lines_alg_1 %>% 
+  mutate(name = paste0(to,"-",from),
+         tmp = from,
+         from = to,
+         to = tmp) %>% 
+  st_reverse() %>% 
+  mutate(len =  st_length(geom) %>% as.numeric()) %>% 
+  select(-tmp)
+lines_alg <- bind_rows(lines_alg_1,lines_alg_2)
 m1 <- res %N>%  as_tibble() %>% st_sf() 
 m2 <- res1 %>% 
   select(edge_paths,from,to) %>% 
